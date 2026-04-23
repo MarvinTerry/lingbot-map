@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LingBot-Map Upload</title>
+    <link rel="stylesheet" href="/ui-static/ui.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero-card">
+        <div class="eyebrow">LingBot-Map Server</div>
+        <h1>上传视频并异步生成三维点云 GLB</h1>
+        <p class="hero-copy">
+          这个最小界面复用现有 Phase 1 job API。上传 <code>mp4</code> 后，服务会排队处理并在结果页提供
+          <code>scene.glb</code> 预览、下载和日志查看。
+        </p>
+      </section>
+
+      <section class="panel-grid">
+        <section class="panel panel-form">
+          <div class="panel-title">Create Job</div>
+          <form id="upload-form" class="stack">
+            <label class="field">
+              <span>API Key</span>
+              <input id="api-key" type="password" autocomplete="off" placeholder="输入 API key" required />
+            </label>
+
+            <label class="field">
+              <span>Video File</span>
+              <input id="video-file" type="file" accept="video/mp4" required />
+              <small>Phase 1 仅支持 <code>.mp4</code>，最大 {{ "{:.2f}".format(max_upload_bytes / 1024 / 1024 / 1024) }} GB。</small>
+            </label>
+
+            <div class="inline-fields">
+              <label class="field">
+                <span>FPS</span>
+                <input id="fps" type="number" min="1" value="10" required />
+              </label>
+
+              <label class="field">
+                <span>Mode</span>
+                <select id="mode">
+                  <option value="streaming" selected>streaming</option>
+                  <option value="windowed">windowed</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Scale Frames</span>
+                <input id="num-scale-frames" type="number" min="1" value="8" required />
+              </label>
+            </div>
+
+            <div class="inline-fields">
+              <label class="field">
+                <span>Window Size</span>
+                <input id="window-size" type="number" min="1" value="64" />
+              </label>
+
+              <label class="field">
+                <span>Overlap Size</span>
+                <input id="overlap-size" type="number" min="0" value="16" />
+              </label>
+
+              <label class="field">
+                <span>Keyframe Interval</span>
+                <input id="keyframe-interval" type="number" min="1" placeholder="留空表示自动" />
+              </label>
+            </div>
+
+            <label class="checkbox-row">
+              <input id="mask-sky" type="checkbox" />
+              <span>Mask Sky</span>
+            </label>
+
+            <div class="progress-card">
+              <div class="progress-label-row">
+                <span>Upload Progress</span>
+                <span id="progress-text">0%</span>
+              </div>
+              <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="submit-button" type="submit" class="button-primary">Start Job</button>
+              <a class="button-ghost" href="/healthz" target="_blank" rel="noreferrer">Healthz</a>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel panel-status">
+          <div class="panel-title">What Happens Next</div>
+          <ol class="status-list">
+            <li>浏览器通过现有 <code>POST /jobs</code> 上传视频。</li>
+            <li>服务端创建 job 并落盘到 <code>outputs/jobs/{job_id}</code>。</li>
+            <li>GPU worker 串行调用 <code>demo.py</code> 生成 <code>scene.glb</code>。</li>
+            <li>页面自动跳转到结果页，并轮询状态直到完成。</li>
+          </ol>
+
+          <div id="message-box" class="message-box" hidden></div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      window.LINGBOT_UI = {
+        maxUploadBytes: {{ max_upload_bytes }},
+      };
+    </script>
+    <script src="/ui-static/upload.js"></script>
+  </body>
+</html>

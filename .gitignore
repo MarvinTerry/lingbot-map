@@ -11,3 +11,16 @@ CLAUDE.md
 .claude/
 .agents/
 skyseg.onnx
+.env
+.env.*
+!.env.example
+
+# Local model weights and generated artifacts
+/checkpoints/
+/outputs/*
+!/outputs/README.md
+/*.mp4
+/*.glb
+/*_frames/
+
+.venv/

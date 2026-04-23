@@ -19,7 +19,9 @@ Usage:
 """
 
 import argparse
+from contextlib import nullcontext
 import glob
+import json
 import os
 import time
 
@@ -38,12 +40,67 @@ from lingbot_map.utils.geometry import closed_form_inverse_se3_general
 from lingbot_map.utils.load_fn import load_and_preprocess_images
 
 
+class ProgressReporter:
+    def __init__(self, path: str | None):
+        self.path = path
+
+    def update(
+        self,
+        phase: str,
+        label: str,
+        overall_percent: float,
+        *,
+        current: int | None = None,
+        total: int | None = None,
+        phase_percent: float | None = None,
+    ) -> None:
+        if not self.path:
+            return
+        if phase_percent is None:
+            if current is not None and total:
+                phase_percent = max(0.0, min(100.0, current / total * 100.0))
+            else:
+                phase_percent = 0.0
+        payload = {
+            "phase": phase,
+            "label": label,
+            "overall_percent": round(max(0.0, min(100.0, overall_percent)), 2),
+            "phase_percent": round(max(0.0, min(100.0, phase_percent)), 2),
+            "current": current,
+            "total": total,
+            "updated_at": time.time(),
+        }
+        path_tmp = f"{self.path}.tmp"
+        directory = os.path.dirname(self.path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path_tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.replace(path_tmp, self.path)
+
+
+def _map_stage_progress(start_percent, end_percent, current, total):
+    if total <= 0:
+        return end_percent
+    ratio = max(0.0, min(1.0, current / total))
+    return start_percent + (end_percent - start_percent) * ratio
+
+
+def _flashinfer_available():
+    try:
+        import flashinfer  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 # =============================================================================
 # Image loading
 # =============================================================================
 
 def load_images(image_folder=None, video_path=None, fps=10, image_ext=".jpg,.png",
-                first_k=None, stride=1, image_size=518, patch_size=14, num_workers=8):
+                first_k=None, stride=1, image_size=518, patch_size=14, num_workers=8,
+                progress_reporter: ProgressReporter | None = None):
     """Load images from folder or video and preprocess into a tensor.
 
     Returns:
@@ -70,6 +127,14 @@ def load_images(image_folder=None, video_path=None, fps=10, image_ext=".jpg,.png
                 saved.append(path)
             idx += 1
             pbar.update(1)
+            if progress_reporter is not None and total_frames > 0:
+                progress_reporter.update(
+                    "extracting",
+                    "Extracting frames from video",
+                    _map_stage_progress(2.0, 8.0, idx, total_frames),
+                    current=idx,
+                    total=total_frames,
+                )
         pbar.close()
         cap.release()
         paths = saved
@@ -89,12 +154,29 @@ def load_images(image_folder=None, video_path=None, fps=10, image_ext=".jpg,.png
         paths = paths[::stride]
 
     print(f"Loading {len(paths)} images...")
+    if progress_reporter is not None:
+        progress_reporter.update(
+            "loading_images",
+            "Loading and preprocessing images",
+            10.0,
+            current=0,
+            total=len(paths),
+        )
     images = load_and_preprocess_images(
         paths,
         mode="crop",
         image_size=image_size,
         patch_size=patch_size,
     )
+    if progress_reporter is not None:
+        progress_reporter.update(
+            "loading_images",
+            "Loading and preprocessing images",
+            16.0,
+            current=len(paths),
+            total=len(paths),
+            phase_percent=100.0 if paths else 0.0,
+        )
     h, w = images.shape[-2:]
     print(f"Preprocessed images to {w}x{h} using canonical crop mode")
     return images, paths, resolved_folder
@@ -106,6 +188,14 @@ def load_images(image_folder=None, video_path=None, fps=10, image_ext=".jpg,.png
 
 def load_model(args, device):
     """Load GCTStream model from checkpoint."""
+    if not args.use_sdpa:
+        if device.type != "cuda":
+            print("CUDA is not available; falling back to SDPA backend.")
+            args.use_sdpa = True
+        elif not _flashinfer_available():
+            print("FlashInfer is not installed; falling back to SDPA backend.")
+            args.use_sdpa = True
+
     if getattr(args, "mode", "streaming") == "windowed":
         from lingbot_map.models.gct_stream_window import GCTStream
     else:
@@ -290,12 +380,23 @@ def main():
                         help="Save sky mask visualizations (original | mask | overlay) to this directory")
     parser.add_argument("--export_preprocessed", type=str, default=None,
                         help="Export stride-sampled, resized/cropped images to this folder")
+    parser.add_argument("--export_glb", type=str, default=None,
+                        help="Export predictions to a GLB file without requiring the interactive viewer")
+    parser.add_argument("--glb_conf_threshold", type=float, default=50.0,
+                        help="Percentile threshold used when exporting GLB point clouds")
+    parser.add_argument("--skip_viewer", action="store_true",
+                        help="Skip launching the interactive viewer (useful for batch/server jobs)")
+    parser.add_argument("--progress_path", type=str, default=None,
+                        help="Write structured job progress to this JSON file")
 
     args = parser.parse_args()
     assert args.image_folder or args.video_path, \
         "Provide --image_folder or --video_path"
+    progress_reporter = ProgressReporter(args.progress_path)
+    progress_reporter.update("starting", "Preparing job", 1.0, current=0, total=1)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    cuda_available = device.type == "cuda"
 
     # ── Load images & model ──────────────────────────────────────────────────
     t0 = time.time()
@@ -303,6 +404,7 @@ def main():
         image_folder=args.image_folder, video_path=args.video_path,
         fps=args.fps, first_k=args.first_k, stride=args.stride,
         image_size=args.image_size, patch_size=args.patch_size,
+        progress_reporter=progress_reporter,
     )
 
     # Export preprocessed images if requested
@@ -318,10 +420,11 @@ def main():
         print(f"Exported to {args.export_preprocessed}")
 
     model = load_model(args, device)
+    progress_reporter.update("loading_model", "Model loaded", 24.0, current=1, total=1, phase_percent=100.0)
     print(f"Total load time: {time.time() - t0:.1f}s")
 
     # Pick inference dtype; autocast still runs for the ops that need fp32 (e.g. LayerNorm).
-    if torch.cuda.is_available():
+    if cuda_available:
         dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
     else:
         dtype = torch.float32
@@ -339,7 +442,7 @@ def main():
     num_frames = images.shape[0]
     print(f"Input: {num_frames} frames, shape {tuple(images.shape)}")
     print(f"Mode: {args.mode}")
-    if torch.cuda.is_available():
+    if cuda_available:
         torch.cuda.empty_cache()
         print(
             f"GPU mem after load: "
@@ -369,16 +472,30 @@ def main():
     # ── Inference ────────────────────────────────────────────────────────────
     print(f"Running {args.mode} inference (dtype={dtype})...")
     t0 = time.time()
+    progress_reporter.update("inference", "Running inference", 26.0, current=0, total=max(num_frames, 1))
 
     output_device = torch.device("cpu") if args.offload_to_cpu else None
 
-    with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
+    autocast_context = (
+        torch.amp.autocast("cuda", dtype=dtype)
+        if cuda_available
+        else nullcontext()
+    )
+
+    with torch.no_grad(), autocast_context:
         if args.mode == "streaming":
             predictions = model.inference_streaming(
                 images,
                 num_scale_frames=args.num_scale_frames,
                 keyframe_interval=args.keyframe_interval,
                 output_device=output_device,
+                progress_callback=lambda current, total: progress_reporter.update(
+                    "inference",
+                    f"Running {args.mode} inference",
+                    _map_stage_progress(26.0, 86.0, current, total),
+                    current=current,
+                    total=total,
+                ),
             )
         else:  # windowed
             predictions = model.inference_windowed(
@@ -387,10 +504,18 @@ def main():
                 overlap_size=args.overlap_size,
                 num_scale_frames=args.num_scale_frames,
                 output_device=output_device,
+                progress_callback=lambda current, total: progress_reporter.update(
+                    "inference",
+                    f"Running {args.mode} inference",
+                    _map_stage_progress(26.0, 86.0, current, total),
+                    current=current,
+                    total=total,
+                ),
             )
 
     print(f"Inference done in {time.time() - t0:.1f}s")
-    if torch.cuda.is_available():
+    progress_reporter.update("postprocess", "Post-processing predictions", 90.0, current=0, total=1)
+    if cuda_available:
         print(
             f"GPU peak during inference: "
             f"{torch.cuda.max_memory_allocated()/1e9:.2f} GB "
@@ -400,15 +525,56 @@ def main():
     # ── Post-process ─────────────────────────────────────────────────────────
     if args.offload_to_cpu:
         del images
-        if torch.cuda.is_available():
+        if cuda_available:
             torch.cuda.empty_cache()
         images_for_post = predictions["images"]  # already CPU
     else:
         images_for_post = images
 
     predictions, images_cpu = postprocess(predictions, images_for_post)
+    progress_reporter.update("postprocess", "Post-processing predictions", 94.0, current=1, total=1, phase_percent=100.0)
+
+    if args.export_glb:
+        try:
+            from lingbot_map.vis.glb_export import predictions_to_glb
+
+            vis_predictions = prepare_for_visualization(predictions, images_cpu)
+            if args.mask_sky:
+                from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
+
+                conf = vis_predictions.get("world_points_conf")
+                if conf is not None:
+                    vis_predictions["world_points_conf"] = apply_sky_segmentation(
+                        conf,
+                        image_folder=resolved_image_folder,
+                        image_paths=paths,
+                        images=vis_predictions.get("images"),
+                        sky_mask_dir=args.sky_mask_dir,
+                        sky_mask_visualization_dir=args.sky_mask_visualization_dir,
+                    )
+
+            scene = predictions_to_glb(
+                vis_predictions,
+                conf_thres=args.glb_conf_threshold,
+                mask_sky=False,
+            )
+            progress_reporter.update("export_glb", "Exporting GLB scene", 97.0, current=0, total=1)
+            export_dir = os.path.dirname(args.export_glb)
+            if export_dir:
+                os.makedirs(export_dir, exist_ok=True)
+            scene.export(args.export_glb)
+            progress_reporter.update("export_glb", "Exporting GLB scene", 100.0, current=1, total=1, phase_percent=100.0)
+            print(f"GLB exported to {args.export_glb}")
+        except ImportError as e:
+            print(f"GLB export failed due to missing dependency: {e}")
+            raise
 
     # ── Visualize ────────────────────────────────────────────────────────────
+    if args.skip_viewer:
+        progress_reporter.update("completed", "Job completed", 100.0, current=1, total=1, phase_percent=100.0)
+        print("Viewer launch skipped.")
+        return
+
     try:
         from lingbot_map.vis import PointCloudViewer
         viewer = PointCloudViewer(

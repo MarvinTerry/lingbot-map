@@ -11,7 +11,7 @@ Provides streaming inference functionality:
 import logging
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from tqdm.auto import tqdm
 
 from lingbot_map.utils.rotation import quat_to_mat, mat_to_quat
@@ -456,6 +456,7 @@ class GCTStream(GCTBase):
         output_device: Optional[torch.device] = None,
         flow_threshold: float = 0.0,
         max_non_keyframe_gap: int = 30,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Streaming inference: process scale frames first, then frame-by-frame.
@@ -538,6 +539,8 @@ class GCTStream(GCTBase):
         all_world_points = [_to_out(scale_output["world_points"])] if "world_points" in scale_output else []
         all_world_points_conf = [_to_out(scale_output["world_points_conf"])] if "world_points_conf" in scale_output else []
         del scale_output
+        if progress_callback is not None:
+            progress_callback(scale_frames, S)
 
         # Phase 2: Process remaining frames one-by-one
         use_flow_keyframe = flow_threshold > 0.0
@@ -620,6 +623,8 @@ class GCTStream(GCTBase):
             if "world_points_conf" in frame_output:
                 all_world_points_conf.append(_to_out(frame_output["world_points_conf"]))
             del frame_output
+            if progress_callback is not None:
+                progress_callback(i + 1, S)
 
         # Free GPU memory before concatenation
         if output_device is not None:
@@ -933,6 +938,7 @@ class GCTStream(GCTBase):
         keyframe_interval: int = 1,
         flow_threshold: float = 0.0,
         max_non_keyframe_gap: int = 30,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Windowed inference with keyframe detection and cross-window alignment.
@@ -1028,6 +1034,7 @@ class GCTStream(GCTBase):
             all_window_predictions: List[Dict] = []
             cursor = 0
             window_idx = 0
+            furthest_cursor = 0
             pbar = tqdm(total=S, desc='Windowed inference (flow)', initial=0)
 
             while cursor < S:
@@ -1056,6 +1063,9 @@ class GCTStream(GCTBase):
 
                 cursor += window_scale
                 pbar.update(window_scale)
+                if progress_callback is not None:
+                    furthest_cursor = max(furthest_cursor, cursor)
+                    progress_callback(furthest_cursor, S)
 
                 # ---------- Phase 2: stream until enough keyframes ----------
                 target_kf = window_size - window_scale  # keyframes to collect
@@ -1106,8 +1116,13 @@ class GCTStream(GCTBase):
                     del frame_out
                     cursor += 1
                     pbar.update(1)
+                    if progress_callback is not None:
+                        furthest_cursor = max(furthest_cursor, cursor)
+                        progress_callback(furthest_cursor, S)
 
                 all_window_predictions.append(_make_window_pred(w_lists))
+                if progress_callback is not None:
+                    progress_callback(end, S)
                 window_idx += 1
 
                 # Next window starts overlap_size frames back (= scale frames)

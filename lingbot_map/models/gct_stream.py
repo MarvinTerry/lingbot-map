@@ -11,7 +11,7 @@ Provides streaming inference functionality:
 import logging
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from tqdm.auto import tqdm
 
 from lingbot_map.heads.camera_head import CameraCausalHead
@@ -299,6 +299,7 @@ class GCTStream(GCTBase):
         num_scale_frames: Optional[int] = None,
         keyframe_interval: int = 1,
         output_device: Optional[torch.device] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Streaming inference: process scale frames first, then frame-by-frame.
@@ -370,6 +371,8 @@ class GCTStream(GCTBase):
         all_world_points = [_to_out(scale_output["world_points"])] if "world_points" in scale_output else []
         all_world_points_conf = [_to_out(scale_output["world_points_conf"])] if "world_points_conf" in scale_output else []
         del scale_output
+        if progress_callback is not None:
+            progress_callback(scale_frames, S)
 
         # Phase 2: Process remaining frames one-by-one
         pbar = tqdm(
@@ -407,6 +410,8 @@ class GCTStream(GCTBase):
             if "world_points_conf" in frame_output:
                 all_world_points_conf.append(_to_out(frame_output["world_points_conf"]))
             del frame_output
+            if progress_callback is not None:
+                progress_callback(i + 1, S)
 
         # Free GPU memory before concatenation
         if output_device is not None:
