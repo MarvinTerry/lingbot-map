@@ -1,0 +1,290 @@
+.workspace-page {
+  overflow-x: auto;
+}
+
+.workspace-page .workspace-shell {
+  display: grid !important;
+  grid-template-columns: 280px minmax(640px, 1fr) 340px !important;
+  align-items: start !important;
+  gap: 20px;
+  width: max(1280px, calc(100vw - 32px));
+  max-width: none;
+  margin: 0 auto;
+  padding: 16px;
+  min-height: 100vh;
+}
+
+.workspace-page .workspace-shell > * {
+  min-width: 0;
+}
+
+.workspace-page .workspace-sidebar,
+.workspace-page .workspace-detail {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.workspace-page .workspace-sidebar {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+}
+
+.workspace-page .workspace-detail {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.workspace-page .workspace-brand,
+.workspace-page .workspace-toolbar,
+.workspace-page .workspace-sidebar .jobs-list,
+.workspace-page .workspace-main,
+.workspace-page .workspace-detail .panel,
+.workspace-page .viewer-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.workspace-page .workspace-brand,
+.workspace-page .workspace-toolbar,
+.workspace-page .workspace-sidebar .jobs-list {
+  padding: 20px;
+}
+
+.workspace-page .workspace-brand p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.workspace-page .workspace-toolbar,
+.workspace-page .filter-row,
+.workspace-page .workspace-header,
+.workspace-page .workspace-header-actions,
+.workspace-page .viewer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.workspace-page .filter-row {
+  gap: 8px;
+}
+
+.workspace-page .filter-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.workspace-page .filter-chip.is-active {
+  background: rgba(160, 75, 34, 0.12);
+  color: var(--brand-deep);
+  border-color: rgba(160, 75, 34, 0.22);
+}
+
+.workspace-page .jobs-list {
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-page .job-list-item {
+  width: 100%;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.workspace-page .job-list-item.is-active {
+  border-color: rgba(160, 75, 34, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(160, 75, 34, 0.16);
+  background: rgba(255, 248, 239, 0.94);
+}
+
+.workspace-page .job-list-head,
+.workspace-page .job-list-progress-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-page .job-list-head {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.workspace-page .job-list-head strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.workspace-page .job-list-sub,
+.workspace-page .job-list-progress-row,
+.workspace-page .artifact-meta span,
+.workspace-page .workspace-brand p,
+.workspace-page .viewer-toolbar,
+.workspace-page .jobs-empty {
+  color: var(--muted);
+}
+
+.workspace-page .job-list-sub {
+  margin-top: 6px;
+  font-size: 0.92rem;
+}
+
+.workspace-page .job-list-state {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(36, 23, 15, 0.08);
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.workspace-page .job-list-state[data-state="succeeded"] {
+  background: rgba(47, 122, 85, 0.14);
+  color: var(--success);
+}
+
+.workspace-page .job-list-state[data-state="failed"] {
+  background: rgba(167, 45, 45, 0.14);
+  color: var(--danger);
+}
+
+.workspace-page .job-list-state[data-state="running"] {
+  background: rgba(211, 154, 56, 0.18);
+  color: #8d5d00;
+}
+
+.workspace-page .job-list-progress-row {
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.workspace-page .job-list-progress-track {
+  margin-top: 8px;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(36, 23, 15, 0.08);
+  overflow: hidden;
+}
+
+.workspace-page .job-list-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), var(--accent));
+}
+
+.workspace-page .workspace-main {
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.workspace-page .workspace-header {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.workspace-page .workspace-header h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: clamp(1.5rem, 2vw, 2.3rem);
+}
+
+.workspace-page .viewer-panel {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-page .viewer-toolbar {
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-page .viewer-status {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.workspace-page .viewer-stage {
+  position: relative;
+  min-height: 640px;
+  height: min(74vh, 920px);
+  border-radius: 20px;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #fff8ef 0%, #efe2cf 100%);
+  border: 1px solid rgba(160, 75, 34, 0.14);
+}
+
+.workspace-page .viewer-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-page .viewer-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+  color: var(--muted);
+  background: linear-gradient(135deg, rgba(211, 154, 56, 0.1), rgba(160, 75, 34, 0.07));
+  z-index: 1;
+}
+
+.workspace-page .workspace-detail .panel-tight {
+  padding: 18px;
+}
+
+.workspace-page .compact-meta {
+  margin-top: 0;
+}
+
+.workspace-page .artifact-list {
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-page .artifact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.workspace-page .artifact-meta {
+  display: grid;
+  gap: 4px;
+}

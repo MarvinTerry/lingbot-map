@@ -102,7 +102,7 @@
         const response = JSON.parse(xhr.responseText);
         showMessage(`Job ${response.job_id} 已创建，正在跳转结果页。`, "success");
         window.setTimeout(function () {
-          window.location.href = `/ui/jobs/${response.job_id}`;
+          window.location.href = `/ui/workspace?job_id=${response.job_id}`;
         }, 350);
         return;
       }

@@ -46,6 +46,7 @@ cp .env.example .env
 ## API
 
 - `GET /healthz`
+- `GET /jobs`
 - `POST /jobs`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/artifacts`
@@ -106,15 +107,16 @@ outputs/jobs/{job_id}/
 现在还提供了一个最小浏览器界面：
 
 - `/ui/upload`
-- `/ui/jobs/{job_id}`
+- `/ui/workspace`
 
 它的职责很克制：
 
 - 上传 `mp4`
+- 在左侧列出所有 jobs
 - 轮询 job 状态
 - 显示排队 / 运行阶段和实时进度
-- 预览生成后的 `scene.glb`
+- 在中央大区域预览生成后的 `scene.glb`
 - 下载产物
 - 删除 job
 
-它不尝试直接把 `viser` 强行嵌进上传页，而是先把“上传 + 结果页 + GLB 预览”这条最短路径打通。
+它不尝试直接把 `viser` 强行嵌进工作台，而是先用 Three.js 把“上传 + jobs 工作台 + GLB 预览”这条最短路径打通。

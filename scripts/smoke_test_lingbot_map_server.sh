@@ -16,6 +16,7 @@ JOB_JSON="$TMP_DIR/job.json"
 ARTIFACTS_JSON="$TMP_DIR/artifacts.json"
 JOB_ID_FILE="$TMP_DIR/job_id.txt"
 DOWNLOADED_METADATA="$TMP_DIR/downloaded_metadata.json"
+GENERATED_VIDEO="$TMP_DIR/generated_smoke.mp4"
 
 cleanup() {
   if [[ -f "$JOB_ID_FILE" ]]; then
@@ -41,8 +42,50 @@ if [[ ! -f "$MODEL_PATH" ]]; then
 fi
 
 if [[ ! -f "$VIDEO_PATH" ]]; then
-  echo "Smoke video not found: $VIDEO_PATH" >&2
-  exit 1
+  echo "Smoke video not found at $VIDEO_PATH, generating one from example/church images"
+  "$REPO_ROOT/.venv/bin/python" - <<'PY' "$REPO_ROOT" "$GENERATED_VIDEO"
+import cv2
+import sys
+from pathlib import Path
+
+repo_root = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+image_dir = repo_root / "example" / "church"
+image_paths = sorted(
+    [
+        *image_dir.glob("*.png"),
+        *image_dir.glob("*.jpg"),
+        *image_dir.glob("*.jpeg"),
+    ]
+)[:12]
+if not image_paths:
+    raise SystemExit(f"No source images found in {image_dir}")
+
+first = cv2.imread(str(image_paths[0]))
+if first is None:
+    raise SystemExit(f"Failed to read {image_paths[0]}")
+
+height, width = first.shape[:2]
+writer = cv2.VideoWriter(
+    str(output_path),
+    cv2.VideoWriter_fourcc(*"mp4v"),
+    4.0,
+    (width, height),
+)
+if not writer.isOpened():
+    raise SystemExit("Failed to open VideoWriter")
+
+for image_path in image_paths:
+    frame = cv2.imread(str(image_path))
+    if frame is None:
+        raise SystemExit(f"Failed to read {image_path}")
+    if frame.shape[0] != height or frame.shape[1] != width:
+        frame = cv2.resize(frame, (width, height))
+    writer.write(frame)
+
+writer.release()
+PY
+  VIDEO_PATH="$GENERATED_VIDEO"
 fi
 
 export LINGBOT_MAP_MODEL_PATH="$MODEL_PATH"
@@ -70,6 +113,12 @@ if [[ "$UPLOAD_UI_CODE" != "200" ]]; then
   exit 1
 fi
 
+WORKSPACE_UI_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/ui/workspace")"
+if [[ "$WORKSPACE_UI_CODE" != "200" ]]; then
+  echo "Expected /ui/workspace to return 200, got $WORKSPACE_UI_CODE" >&2
+  exit 1
+fi
+
 UNAUTH_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/jobs/not-found")"
 if [[ "$UNAUTH_CODE" != "401" ]]; then
   echo "Expected 401 without API key, got $UNAUTH_CODE" >&2
@@ -94,9 +143,15 @@ PY
 echo "$JOB_ID" > "$JOB_ID_FILE"
 echo "Job ID: $JOB_ID"
 
+JOBS_API_CODE="$(curl -s -o "$TMP_DIR/jobs_list.json" -w '%{http_code}' -H "X-API-Key: $API_KEY" "$BASE_URL/jobs")"
+if [[ "$JOBS_API_CODE" != "200" ]]; then
+  echo "Expected /jobs to return 200, got $JOBS_API_CODE" >&2
+  exit 1
+fi
+
 JOB_UI_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/ui/jobs/$JOB_ID")"
-if [[ "$JOB_UI_CODE" != "200" ]]; then
-  echo "Expected /ui/jobs/$JOB_ID to return 200, got $JOB_UI_CODE" >&2
+if [[ "$JOB_UI_CODE" != "307" ]]; then
+  echo "Expected /ui/jobs/$JOB_ID to return 307, got $JOB_UI_CODE" >&2
   exit 1
 fi
 

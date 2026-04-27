@@ -19,16 +19,17 @@ It does not include first-person flythrough video generation, streaming output, 
 The server now also includes a minimal browser UI:
 
 - `/ui/upload`
-- `/ui/jobs/{job_id}`
+- `/ui/workspace`
 
 The UI is intentionally small:
 
 - upload `mp4`
 - save API key in browser local storage
-- auto-jump to the job result page
+- auto-jump to the workspace
+- show all jobs in a left sidebar
 - poll job status
 - show queue/running progress in real time
-- preview `scene.glb` in-page
+- preview `scene.glb` in a large central Three.js viewer
 - download artifacts
 - delete the job
 
@@ -122,7 +123,7 @@ PATH=/home/ubuntu/lingbot-map/.venv/bin:$PATH \
 Then open:
 
 ```text
-http://127.0.0.1:8000/ui/upload
+http://127.0.0.1:8000/ui/workspace
 ```
 
 ## API
@@ -133,6 +134,7 @@ Public:
 
 Authenticated:
 
+- `GET /jobs`
 - `POST /jobs`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/artifacts`
@@ -158,7 +160,7 @@ curl -X POST "http://127.0.0.1:8000/jobs" \
 
 - The browser UI stores the API key in local storage.
 - Artifact downloads and GLB preview still go through the authenticated artifact endpoints.
-- The in-page GLB preview uses `model-viewer` from a CDN in this first version.
+- The workspace uses a Three.js-based GLB viewer so the page can evolve toward richer camera/path-based 3D playback later.
 - Server process configuration is loaded from environment variables and optional `.env`.
 
 ## Artifacts

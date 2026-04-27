@@ -61,7 +61,19 @@ def root() -> RedirectResponse:
 
 @app.get("/ui")
 def ui_root() -> RedirectResponse:
-    return RedirectResponse(url="/ui/upload", status_code=307)
+    return RedirectResponse(url="/ui/workspace", status_code=307)
+
+
+@app.get("/ui/workspace")
+def workspace_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="workspace.html",
+        context={
+            "request": request,
+            "selected_job_id": request.query_params.get("job_id", ""),
+        },
+    )
 
 
 @app.get("/ui/upload")
@@ -78,14 +90,8 @@ def upload_page(request: Request):
 
 @app.get("/ui/jobs/{job_id}")
 def job_page(job_id: str, request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="job.html",
-        context={
-            "request": request,
-            "job_id": job_id,
-        },
-    )
+    del request
+    return RedirectResponse(url=f"/ui/workspace?job_id={job_id}", status_code=307)
 
 
 @app.get("/healthz")
@@ -157,6 +163,12 @@ def get_job(job_id: str, request: Request) -> dict:
         return manager.get_job(job_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@app.get("/jobs", dependencies=[Depends(require_api_key)])
+def get_jobs(request: Request) -> dict:
+    manager = _manager(request)
+    return {"jobs": manager.list_jobs()}
 
 
 @app.get("/jobs/{job_id}/artifacts", dependencies=[Depends(require_api_key)])

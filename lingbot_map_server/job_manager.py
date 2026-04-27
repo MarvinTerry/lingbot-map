@@ -178,6 +178,15 @@ class JobManager:
             record = self._get_locked(job_id)
             return self._public_job(record)
 
+    def list_jobs(self) -> list[dict]:
+        with self._lock:
+            records = sorted(
+                self._jobs.values(),
+                key=lambda item: (item.get("created_at") or "", item["job_id"]),
+                reverse=True,
+            )
+            return [self._public_job(record) for record in records]
+
     def list_artifacts(self, job_id: str) -> list[dict]:
         with self._lock:
             record = self._get_locked(job_id)

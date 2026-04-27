@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LingBot-Map Workspace</title>
+    <link rel="stylesheet" href="/ui-static/ui.css" />
+    <link rel="stylesheet" href="/ui-static/workspace.css?v=20260423-1" />
+    <style>
+      body.workspace-page {
+        overflow-x: auto;
+      }
+
+      body.workspace-page main.workspace-shell {
+        display: grid !important;
+        grid-template-columns: 280px minmax(640px, 1fr) 340px !important;
+        align-items: start !important;
+        gap: 20px;
+        width: max(1280px, calc(100vw - 32px));
+        max-width: none;
+        margin: 0 auto;
+        padding: 16px;
+        min-height: 100vh;
+      }
+
+      body.workspace-page main.workspace-shell > * {
+        min-width: 0;
+      }
+
+      body.workspace-page .workspace-sidebar,
+      body.workspace-page .workspace-detail {
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+
+      body.workspace-page .workspace-sidebar {
+        position: sticky;
+        top: 16px;
+        max-height: calc(100vh - 32px);
+      }
+
+      body.workspace-page .workspace-detail {
+        position: sticky;
+        top: 16px;
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      body.workspace-page .workspace-brand,
+      body.workspace-page .workspace-toolbar,
+      body.workspace-page .workspace-sidebar .jobs-list,
+      body.workspace-page .workspace-main,
+      body.workspace-page .workspace-detail .panel,
+      body.workspace-page .viewer-panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      body.workspace-page .workspace-brand,
+      body.workspace-page .workspace-toolbar,
+      body.workspace-page .workspace-sidebar .jobs-list {
+        padding: 20px;
+      }
+
+      body.workspace-page .workspace-toolbar,
+      body.workspace-page .filter-row,
+      body.workspace-page .workspace-header,
+      body.workspace-page .workspace-header-actions,
+      body.workspace-page .viewer-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      body.workspace-page .filter-row {
+        gap: 8px;
+      }
+
+      body.workspace-page .filter-chip {
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.62);
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      body.workspace-page .filter-chip.is-active {
+        background: rgba(160, 75, 34, 0.12);
+        color: var(--brand-deep);
+        border-color: rgba(160, 75, 34, 0.22);
+      }
+
+      body.workspace-page .jobs-list {
+        max-height: calc(100vh - 260px);
+        overflow: auto;
+        display: grid;
+        gap: 12px;
+      }
+
+      body.workspace-page .job-list-item {
+        width: 100%;
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--text);
+        cursor: pointer;
+        text-align: left;
+      }
+
+      body.workspace-page .job-list-item.is-active {
+        border-color: rgba(160, 75, 34, 0.28);
+        box-shadow: inset 0 0 0 1px rgba(160, 75, 34, 0.16);
+        background: rgba(255, 248, 239, 0.94);
+      }
+
+      body.workspace-page .workspace-main {
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+
+      body.workspace-page .viewer-panel {
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+      }
+
+      body.workspace-page .viewer-stage {
+        position: relative;
+        min-height: 640px;
+        height: min(74vh, 920px);
+        border-radius: 20px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body class="workspace-page">
+    <main class="workspace-shell">
+      <aside class="workspace-sidebar">
+        <div class="workspace-brand">
+          <div class="eyebrow">LingBot-Map</div>
+          <h1>Workspace</h1>
+          <p>统一查看所有 jobs、进度、产物与三维结果。</p>
+        </div>
+
+        <div class="workspace-toolbar">
+          <a class="button-primary" href="/ui/upload">New Upload</a>
+          <button id="workspace-refresh" class="button-ghost" type="button">Refresh</button>
+        </div>
+
+        <div class="filter-row" id="workspace-filters">
+          <button class="filter-chip is-active" data-filter="all" type="button">All</button>
+          <button class="filter-chip" data-filter="queued" type="button">Queued</button>
+          <button class="filter-chip" data-filter="running" type="button">Running</button>
+          <button class="filter-chip" data-filter="succeeded" type="button">Succeeded</button>
+          <button class="filter-chip" data-filter="failed" type="button">Failed</button>
+        </div>
+
+        <div id="jobs-list" class="jobs-list"></div>
+      </aside>
+
+      <section class="workspace-main">
+        <header class="workspace-header">
+          <div>
+            <div class="eyebrow">Selected Job</div>
+            <h2 id="selected-job-title">No job selected</h2>
+          </div>
+          <div class="workspace-header-actions">
+            <button id="fit-view-button" class="button-ghost" type="button">Fit View</button>
+            <button id="delete-job-button" class="button-danger" type="button">Delete Job</button>
+          </div>
+        </header>
+
+        <section class="viewer-panel">
+          <div id="viewer-toolbar" class="viewer-toolbar">
+            <div id="viewer-status" class="viewer-status">等待选择 job。</div>
+            <div class="viewer-stats" id="viewer-stats">-</div>
+          </div>
+          <div id="viewer-stage" class="viewer-stage">
+            <div id="viewer-empty" class="viewer-empty">
+              左侧选择一个 job。成功完成的 job 会在这里以 Three.js 方式加载并展示 `scene.glb`。
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="workspace-detail">
+        <section class="panel panel-tight">
+          <div class="panel-title">Progress</div>
+          <div class="status-pill" id="detail-status-pill">idle</div>
+          <div class="job-progress-card">
+            <div class="progress-label-row">
+              <span id="detail-progress-label">Waiting for job</span>
+              <span id="detail-progress-percent">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div id="detail-progress-fill" class="progress-fill"></div>
+            </div>
+            <div id="detail-progress-meta" class="progress-meta">当前没有选中 job。</div>
+          </div>
+          <div id="detail-message-box" class="message-box" hidden></div>
+        </section>
+
+        <section class="panel panel-tight">
+          <div class="panel-title">Job Details</div>
+          <dl class="meta-grid compact-meta" id="detail-meta-grid">
+            <div><dt>Job ID</dt><dd id="detail-job-id">-</dd></div>
+            <div><dt>Created</dt><dd id="detail-created-at">-</dd></div>
+            <div><dt>Started</dt><dd id="detail-started-at">-</dd></div>
+            <div><dt>Finished</dt><dd id="detail-finished-at">-</dd></div>
+            <div><dt>Input</dt><dd id="detail-input-file">-</dd></div>
+            <div><dt>Video</dt><dd id="detail-video-meta">-</dd></div>
+            <div><dt>Request</dt><dd id="detail-request-meta">-</dd></div>
+            <div><dt>Runtime</dt><dd id="detail-runtime-meta">-</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel panel-tight">
+          <div class="panel-title">Artifacts</div>
+          <div id="detail-artifacts" class="artifact-list"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      window.LINGBOT_WORKSPACE = {
+        selectedJobId: "{{ selected_job_id }}",
+      };
+    </script>
+    <script type="module" src="/ui-static/workspace.js"></script>
+  </body>
+</html>
