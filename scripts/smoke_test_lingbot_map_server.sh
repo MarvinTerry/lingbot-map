@@ -222,6 +222,12 @@ if downloaded["job_id"] != job["job_id"]:
     raise SystemExit("downloaded metadata job_id mismatch")
 PY
 
+PREVIEW_UI_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/ui/jobs/$JOB_ID/preview")"
+if [[ "$PREVIEW_UI_CODE" != "307" ]]; then
+  echo "Expected /ui/jobs/$JOB_ID/preview to return 307, got $PREVIEW_UI_CODE" >&2
+  exit 1
+fi
+
 echo "[6/6] Deleting job"
 DELETE_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "X-API-Key: $API_KEY" "$BASE_URL/jobs/$JOB_ID")"
 if [[ "$DELETE_CODE" != "204" ]]; then

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse
@@ -92,6 +92,27 @@ def upload_page(request: Request):
 def job_page(job_id: str, request: Request):
     del request
     return RedirectResponse(url=f"/ui/workspace?job_id={job_id}", status_code=307)
+
+
+@app.get("/ui/jobs/{job_id}/preview")
+def job_preview_page(job_id: str, request: Request):
+    manager = _manager(request)
+    try:
+        job = manager.get_job(job_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    preview = job.get("preview", {})
+    port = preview.get("port")
+    if preview.get("status") != "ready" or not port:
+        message = preview.get("error") or "Preview is not ready yet."
+        return HTMLResponse(
+            f"<html><body><pre>{message}</pre></body></html>",
+            status_code=503,
+        )
+
+    host = request.url.hostname or "127.0.0.1"
+    return RedirectResponse(url=f"http://{host}:{port}/", status_code=307)
 
 
 @app.get("/healthz")

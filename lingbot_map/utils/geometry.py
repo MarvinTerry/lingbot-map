@@ -54,6 +54,42 @@ def unproject_depth_map_to_point_map(
     return world_points_array
 
 
+def transform_point_map_to_world(
+    point_map: np.ndarray | torch.Tensor,
+    extrinsics_cam: np.ndarray | torch.Tensor,
+) -> np.ndarray | torch.Tensor:
+    """Transform a per-pixel camera-space point map into world coordinates.
+
+    Args:
+        point_map: (..., H, W, 3) points in the camera coordinate frame.
+        extrinsics_cam: (..., 3, 4) world-to-camera extrinsics matching point_map.
+    """
+    is_numpy = isinstance(point_map, np.ndarray)
+
+    if is_numpy:
+        point_map_h = np.concatenate(
+            [point_map, np.ones_like(point_map[..., :1])], axis=-1
+        )
+        extrinsics_4x4 = np.zeros((*extrinsics_cam.shape[:-2], 4, 4), dtype=extrinsics_cam.dtype)
+        extrinsics_4x4[..., :3, :4] = extrinsics_cam
+        extrinsics_4x4[..., 3, 3] = 1
+        cam_to_world = closed_form_inverse_se3(extrinsics_4x4.reshape(-1, 4, 4)).reshape(
+            *extrinsics_4x4.shape
+        )
+        return np.einsum("...ij,...hwj->...hwi", cam_to_world[..., :3, :], point_map_h)
+
+    point_map_h = torch.cat([point_map, torch.ones_like(point_map[..., :1])], dim=-1)
+    extrinsics_4x4 = torch.zeros(
+        (*extrinsics_cam.shape[:-2], 4, 4),
+        dtype=extrinsics_cam.dtype,
+        device=extrinsics_cam.device,
+    )
+    extrinsics_4x4[..., :3, :4] = extrinsics_cam
+    extrinsics_4x4[..., 3, 3] = 1.0
+    cam_to_world = closed_form_inverse_se3_general(extrinsics_4x4)
+    return torch.einsum("...ij,...hwj->...hwi", cam_to_world[..., :3, :], point_map_h)
+
+
 def depth_to_world_coords_points(
     depth_map: np.ndarray,
     extrinsic: np.ndarray,

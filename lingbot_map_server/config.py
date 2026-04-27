@@ -31,6 +31,9 @@ class ServerSettings:
     python_executable: str
     use_sdpa: bool
     offload_to_cpu: bool
+    preview_port_base: int
+    preview_max_frames: int
+    preview_spatial_stride: int
 
     @property
     def demo_script(self) -> Path:
@@ -62,4 +65,7 @@ def load_settings() -> ServerSettings:
         python_executable=sys.executable,
         use_sdpa=_env_bool("LINGBOT_MAP_SERVER_USE_SDPA", False),
         offload_to_cpu=_env_bool("LINGBOT_MAP_SERVER_OFFLOAD_TO_CPU", True),
+        preview_port_base=int(os.getenv("LINGBOT_MAP_SERVER_PREVIEW_PORT_BASE", "9000")),
+        preview_max_frames=int(os.getenv("LINGBOT_MAP_SERVER_PREVIEW_MAX_FRAMES", "96")),
+        preview_spatial_stride=int(os.getenv("LINGBOT_MAP_SERVER_PREVIEW_SPATIAL_STRIDE", "4")),
     )

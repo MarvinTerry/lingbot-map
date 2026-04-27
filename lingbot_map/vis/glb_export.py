@@ -17,6 +17,7 @@ import cv2
 import matplotlib
 from scipy.spatial.transform import Rotation
 
+from lingbot_map.utils.geometry import transform_point_map_to_world
 from lingbot_map.vis.sky_segmentation import (
     _SKYSEG_INPUT_SIZE,
     _SKYSEG_SOFT_THRESHOLD,
@@ -88,6 +89,10 @@ def predictions_to_glb(
             pass
 
     # Select prediction source
+    point_frame = predictions.get("point_frame", "camera")
+    if isinstance(point_frame, np.ndarray):
+        point_frame = point_frame.item()
+
     if "Pointmap" in prediction_mode:
         print("Using Pointmap Branch")
         if "world_points" in predictions:
@@ -123,6 +128,9 @@ def predictions_to_glb(
         pred_world_points_conf = pred_world_points_conf[selected_frame_idx][None]
         images = images[selected_frame_idx][None]
         camera_matrices = camera_matrices[selected_frame_idx][None]
+
+    if "Pointmap" in prediction_mode and point_frame != "world":
+        pred_world_points = transform_point_map_to_world(pred_world_points, camera_matrices)
 
     # Prepare vertices and colors
     vertices_3d = pred_world_points.reshape(-1, 3)

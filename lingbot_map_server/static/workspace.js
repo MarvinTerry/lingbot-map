@@ -48,6 +48,25 @@ let controls = null;
 let loader = null;
 let viewerAvailable = false;
 let renderScheduled = false;
+let previewFrame = null;
+let currentPreviewUrl = null;
+
+if (viewerStage) {
+  previewFrame = document.createElement("iframe");
+  previewFrame.hidden = true;
+  previewFrame.title = "LingBot-Map Preview";
+  previewFrame.referrerPolicy = "strict-origin-when-cross-origin";
+  Object.assign(previewFrame.style, {
+    position: "absolute",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    border: "0",
+    background: "#f6efe5",
+    zIndex: "2",
+  });
+  viewerStage.appendChild(previewFrame);
+}
 
 function initializeViewer() {
   if (!viewerStage) {
@@ -248,6 +267,36 @@ function clearViewer() {
   requestRender();
 }
 
+function clearEmbeddedPreview() {
+  if (!previewFrame) {
+    currentPreviewUrl = null;
+    return;
+  }
+  previewFrame.hidden = true;
+  if (previewFrame.src) {
+    previewFrame.src = "about:blank";
+  }
+  currentPreviewUrl = null;
+}
+
+function loadEmbeddedPreview(job) {
+  const preview = job?.preview || {};
+  if (!previewFrame || preview.status !== "ready" || !preview.url) {
+    return false;
+  }
+  clearViewer();
+  if (currentPreviewUrl !== preview.url) {
+    previewFrame.src = preview.url;
+    currentPreviewUrl = preview.url;
+  }
+  previewFrame.hidden = false;
+  viewerEmpty.hidden = true;
+  viewerStatus.textContent = "Interactive preview";
+  viewerStats.textContent = preview.port ? `Viser :${preview.port}` : "Viser";
+  fitViewButton.textContent = "Open Preview";
+  return true;
+}
+
 function renderScene() {
   renderScheduled = false;
   if (!viewerAvailable || !renderer || !scene || !camera || !controls) {
@@ -280,11 +329,13 @@ function resetWorkspaceState() {
   detailRuntimeMeta.textContent = "-";
   detailArtifacts.innerHTML = '<div class="artifact-row"><div class="artifact-meta"><strong>暂无选中 job</strong><span>请从左侧列表选择一个 job。</span></div></div>';
   setProgress({ overall_percent: 0, label: "Waiting for job" }, "idle");
+  clearEmbeddedPreview();
   clearViewer();
   viewerEmpty.hidden = false;
   viewerEmpty.textContent = "左侧选择一个 job。成功完成的 job 会在这里以 Three.js 方式加载并展示 scene.glb。";
   viewerStatus.textContent = "Idle";
   viewerStats.textContent = "-";
+  fitViewButton.textContent = "Fit View";
 }
 
 function fitObjectInView(object) {
@@ -456,8 +507,26 @@ function renderSelectedJob(job) {
   }
 
   if (job.status === "succeeded") {
+    if (loadEmbeddedPreview(job)) {
+      return;
+    }
+
+    const preview = job.preview || {};
+    if (preview.status === "starting" || preview.status === "pending") {
+      clearViewer();
+      viewerEmpty.hidden = false;
+      viewerEmpty.textContent = "正在启动交互式预览，请稍候...";
+      viewerStatus.textContent = "Starting preview";
+      viewerStats.textContent = "-";
+      fitViewButton.textContent = "Fit View";
+      return;
+    }
+
+    clearEmbeddedPreview();
+    fitViewButton.textContent = "Fit View";
     loadGlb(job);
   } else {
+    clearEmbeddedPreview();
     clearViewer();
     viewerEmpty.hidden = false;
     viewerEmpty.textContent = job.status === "failed"
@@ -465,6 +534,7 @@ function renderSelectedJob(job) {
       : "等待任务完成后显示 GLB。";
     viewerStatus.textContent = job.progress?.label || job.status;
     viewerStats.textContent = "-";
+    fitViewButton.textContent = "Fit View";
   }
 }
 
@@ -546,6 +616,10 @@ function resizeRenderer() {
 }
 
 fitViewButton.addEventListener("click", () => {
+  if (currentPreviewUrl) {
+    window.open(currentPreviewUrl, "_blank", "noopener");
+    return;
+  }
   if (currentSceneObject) {
     fitObjectInView(currentSceneObject);
   }

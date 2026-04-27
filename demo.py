@@ -36,7 +36,9 @@ import torch
 from tqdm.auto import tqdm
 
 from lingbot_map.utils.pose_enc import pose_encoding_to_extri_intri
-from lingbot_map.utils.geometry import closed_form_inverse_se3_general
+from lingbot_map.utils.geometry import (
+    closed_form_inverse_se3_general,
+)
 from lingbot_map.utils.load_fn import load_and_preprocess_images
 
 
@@ -317,6 +319,56 @@ def prepare_for_visualization(predictions, images=None):
     return vis_predictions
 
 
+def export_preview_bundle(
+    predictions,
+    images,
+    output_path,
+    *,
+    max_frames=96,
+    spatial_stride=4,
+):
+    """Export a lightweight preview bundle for fast interactive visualization."""
+    vis_predictions = prepare_for_visualization(predictions, images)
+
+    images_np = vis_predictions.get("images")
+    depth = vis_predictions.get("depth")
+    depth_conf = vis_predictions.get("depth_conf")
+    extrinsic = vis_predictions.get("extrinsic")
+    intrinsic = vis_predictions.get("intrinsic")
+
+    if images_np is None or depth is None or depth_conf is None or extrinsic is None or intrinsic is None:
+        raise ValueError("images, depth, depth_conf, extrinsic, and intrinsic are required for preview bundle export")
+
+    num_frames = int(images_np.shape[0])
+    frame_count = min(max_frames, num_frames)
+    frame_indices = np.linspace(0, num_frames - 1, frame_count, dtype=np.int32)
+    frame_indices = np.unique(frame_indices)
+
+    stride = max(1, int(spatial_stride))
+
+    preview_images = images_np[frame_indices][:, :, ::stride, ::stride].astype(np.float16)
+    preview_depth = depth[frame_indices][:, ::stride, ::stride, :].astype(np.float16)
+    preview_depth_conf = depth_conf[frame_indices][:, ::stride, ::stride].astype(np.float32)
+    preview_extrinsic = extrinsic[frame_indices].astype(np.float32)
+    preview_intrinsic = intrinsic[frame_indices].astype(np.float32).copy()
+    preview_intrinsic[:, 0, :] /= stride
+    preview_intrinsic[:, 1, :] /= stride
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    np.savez_compressed(
+        output_path,
+        images=preview_images,
+        depth=preview_depth,
+        depth_conf=preview_depth_conf,
+        extrinsic=preview_extrinsic,
+        intrinsic=preview_intrinsic,
+        frame_indices=frame_indices,
+    )
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -382,6 +434,12 @@ def main():
                         help="Export stride-sampled, resized/cropped images to this folder")
     parser.add_argument("--export_glb", type=str, default=None,
                         help="Export predictions to a GLB file without requiring the interactive viewer")
+    parser.add_argument("--export_preview_bundle", type=str, default=None,
+                        help="Export a lightweight NPZ bundle for fast Viser preview")
+    parser.add_argument("--preview_max_frames", type=int, default=96,
+                        help="Maximum number of frames stored in the preview bundle")
+    parser.add_argument("--preview_spatial_stride", type=int, default=4,
+                        help="Spatial stride used when exporting the preview bundle")
     parser.add_argument("--glb_conf_threshold", type=float, default=50.0,
                         help="Percentile threshold used when exporting GLB point clouds")
     parser.add_argument("--skip_viewer", action="store_true",
@@ -534,29 +592,51 @@ def main():
     predictions, images_cpu = postprocess(predictions, images_for_post)
     progress_reporter.update("postprocess", "Post-processing predictions", 94.0, current=1, total=1, phase_percent=100.0)
 
+    vis_predictions = None
+    if args.export_preview_bundle or args.export_glb or not args.skip_viewer:
+        vis_predictions = prepare_for_visualization(predictions, images_cpu)
+        if args.mask_sky:
+            from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
+
+            conf = vis_predictions.get("world_points_conf")
+            if conf is not None:
+                vis_predictions["world_points_conf"] = apply_sky_segmentation(
+                    conf,
+                    image_folder=resolved_image_folder,
+                    image_paths=paths,
+                    images=vis_predictions.get("images"),
+                    sky_mask_dir=args.sky_mask_dir,
+                    sky_mask_visualization_dir=args.sky_mask_visualization_dir,
+                )
+
+    if args.export_preview_bundle:
+        progress_reporter.update("export_preview", "Exporting preview bundle", 96.0, current=0, total=1)
+        export_preview_bundle(
+            vis_predictions if vis_predictions is not None else predictions,
+            images_cpu,
+            args.export_preview_bundle,
+            max_frames=args.preview_max_frames,
+            spatial_stride=args.preview_spatial_stride,
+        )
+        progress_reporter.update("export_preview", "Exporting preview bundle", 97.0, current=1, total=1, phase_percent=100.0)
+        print(f"Preview bundle exported to {args.export_preview_bundle}")
+
     if args.export_glb:
         try:
             from lingbot_map.vis.glb_export import predictions_to_glb
+            from lingbot_map.utils.geometry import unproject_depth_map_to_point_map
 
-            vis_predictions = prepare_for_visualization(predictions, images_cpu)
-            if args.mask_sky:
-                from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
-
-                conf = vis_predictions.get("world_points_conf")
-                if conf is not None:
-                    vis_predictions["world_points_conf"] = apply_sky_segmentation(
-                        conf,
-                        image_folder=resolved_image_folder,
-                        image_paths=paths,
-                        images=vis_predictions.get("images"),
-                        sky_mask_dir=args.sky_mask_dir,
-                        sky_mask_visualization_dir=args.sky_mask_visualization_dir,
-                    )
-
+            glb_predictions = dict(vis_predictions)
+            glb_predictions["world_points_from_depth"] = unproject_depth_map_to_point_map(
+                glb_predictions["depth"],
+                glb_predictions["extrinsic"],
+                glb_predictions["intrinsic"],
+            )
             scene = predictions_to_glb(
-                vis_predictions,
+                glb_predictions,
                 conf_thres=args.glb_conf_threshold,
                 mask_sky=False,
+                prediction_mode="Predicted Depthmap",
             )
             progress_reporter.update("export_glb", "Exporting GLB scene", 97.0, current=0, total=1)
             export_dir = os.path.dirname(args.export_glb)
@@ -578,7 +658,7 @@ def main():
     try:
         from lingbot_map.vis import PointCloudViewer
         viewer = PointCloudViewer(
-            pred_dict=prepare_for_visualization(predictions, images_cpu),
+            pred_dict=vis_predictions,
             port=args.port,
             vis_threshold=args.conf_threshold,
             downsample_factor=args.downsample_factor,

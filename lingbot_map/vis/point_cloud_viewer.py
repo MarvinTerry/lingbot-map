@@ -28,7 +28,11 @@ from tqdm.auto import tqdm
 import viser
 import viser.transforms as tf
 
-from lingbot_map.utils.geometry import closed_form_inverse_se3, unproject_depth_map_to_point_map
+from lingbot_map.utils.geometry import (
+    closed_form_inverse_se3,
+    transform_point_map_to_world,
+    unproject_depth_map_to_point_map,
+)
 from lingbot_map.vis.utils import CameraState
 from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
 
@@ -102,6 +106,7 @@ class PointCloudViewer:
         self.conf_list = conf_list
         self.vis_threshold = vis_threshold
         self.point_size = point_size
+        self.downsample_factor = downsample_factor
         self.tt = lambda x: torch.from_numpy(x).float().to(device)
 
         # Process the prediction dictionary to create pc_list, color_list, conf_list
@@ -127,6 +132,8 @@ class PointCloudViewer:
         self.traj_list = []
         self.orig_img_list = [x[0] for x in color_list if len(x) > 0] if color_list else []
         self.via_points = []
+        self._stop_event = threading.Event()
+        self._background_thread: Optional[threading.Thread] = None
 
         self._setup_gui()
         self.server.on_client_connect(self._connect_client)
@@ -163,11 +170,17 @@ class PointCloudViewer:
         intrinsics_cam = pred_dict["intrinsic"]  # (S, 3, 3)
 
         # Compute world points from depth if not using the precomputed point map
+        point_frame = pred_dict.get("point_frame", "camera")
+        if isinstance(point_frame, np.ndarray):
+            point_frame = point_frame.item()
+
         if not use_point_map:
             world_points = unproject_depth_map_to_point_map(depth_map, extrinsics_cam, intrinsics_cam)
             conf = depth_conf
         else:
             world_points = pred_dict["world_points"]  # (S, H, W, 3)
+            if point_frame != "world":
+                world_points = transform_point_map_to_world(world_points, extrinsics_cam)
             conf = pred_dict.get("world_points_conf", depth_conf)  # (S, H, W)
 
         # Apply sky segmentation if enabled
@@ -409,13 +422,13 @@ class PointCloudViewer:
             "Camera Size", min=0.01, max=0.5, step=0.01, initial_value=0.1
         )
         self.downsample_slider = self.server.gui.add_slider(
-            "Downsample Factor", min=1, max=1000, step=1, initial_value=10
+            "Downsample Factor", min=1, max=1000, step=1, initial_value=self.downsample_factor
         )
         self.show_camera_checkbox = self.server.gui.add_checkbox(
             "Show Camera", initial_value=self.show_camera
         )
         self.vis_threshold_slider = self.server.gui.add_slider(
-            "Visibility Threshold", min=1.0, max=5.0, step=0.01,
+            "Visibility Threshold", min=0.0, max=5.0, step=0.01,
             initial_value=self.vis_threshold,
         )
         self.camera_downsample_slider = self.server.gui.add_slider(
@@ -1226,7 +1239,7 @@ class PointCloudViewer:
                     self.add_camera(step)
 
         prev_timestep = self.gui_timestep.value
-        while True:
+        while not self._stop_event.is_set():
             if self.on_replay:
                 pass
             else:
@@ -1422,16 +1435,22 @@ class PointCloudViewer:
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             return frame
 
+    def run_background(self) -> None:
+        """Run the viewer animation loop in a daemon thread."""
+        if self._background_thread is not None and self._background_thread.is_alive():
+            return
+        self._background_thread = threading.Thread(target=self.animate, daemon=True)
+        self._background_thread.start()
+
+    def stop(self) -> None:
+        """Stop the viewer animation loop and web server."""
+        self._stop_event.set()
+        self.server.stop()
+
     def run(self, background_mode: bool = False):
         """Run the viewer."""
-        self.animate()
         if background_mode:
-            def server_loop():
-                while True:
-                    time.sleep(0.001)
+            self.run_background()
+            return
 
-            thread = threading.Thread(target=server_loop, daemon=True)
-            thread.start()
-        else:
-            while True:
-                time.sleep(10.0)
+        self.animate()

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import queue
+import socket
 import shutil
 import signal
 import subprocess
@@ -15,6 +16,12 @@ import uuid
 import cv2
 
 from lingbot_map_server.config import ServerSettings
+
+try:
+    from lingbot_map_server.preview_viewer import PreviewServerHandle, start_preview_server
+except ImportError:  # pragma: no cover - optional runtime dependency
+    PreviewServerHandle = None  # type: ignore[assignment]
+    start_preview_server = None
 
 
 def _utcnow() -> str:
@@ -37,6 +44,7 @@ class JobManager:
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
         self._processes: dict[str, subprocess.Popen] = {}
+        self._preview_servers: dict[str, PreviewServerHandle] = {}
         self._load_jobs_from_disk()
 
     def start(self) -> None:
@@ -44,15 +52,20 @@ class JobManager:
             return
         self._worker = threading.Thread(target=self._worker_loop, name="lingbot-map-worker", daemon=True)
         self._worker.start()
+        self._restore_preview_servers()
 
     def stop(self) -> None:
         self._stop_event.set()
         self._queue.put("__shutdown__")
         process_items = []
+        preview_items = []
         with self._lock:
             process_items = list(self._processes.items())
+            preview_items = list(self._preview_servers.items())
         for job_id, process in process_items:
             self._terminate_process(job_id, process)
+        for job_id, preview in preview_items:
+            self._stop_preview_server(job_id, preview)
         if self._worker is not None:
             self._worker.join(timeout=5)
 
@@ -115,10 +128,12 @@ class JobManager:
                 "log_txt": str(artifacts_dir / "log.txt"),
                 "metadata_json": str(job_dir / "metadata.json"),
                 "progress_json": str(job_dir / "progress.json"),
+                "preview_bundle": str(artifacts_dir / "preview_bundle.npz"),
                 "sky_mask_dir": str(job_dir / "sky_masks"),
                 "sky_mask_visualization_dir": str(job_dir / "sky_mask_visualizations"),
                 "frames_dir": str(frames_dir),
             },
+            "preview": self._preview_state(job_id),
         }
         with self._lock:
             self._jobs[job_id] = record
@@ -208,20 +223,26 @@ class JobManager:
             record["last_updated_at"] = _utcnow()
             self._persist_locked(record)
             process = self._processes.get(job_id)
+            preview = self._preview_servers.get(job_id)
             job_dir = Path(record["paths"]["job_dir"])
 
         if process is not None:
             self._terminate_process(job_id, process)
+        if preview is not None:
+            self._stop_preview_server(job_id, preview)
 
         shutil.rmtree(job_dir, ignore_errors=True)
         with self._lock:
             self._processes.pop(job_id, None)
+            self._preview_servers.pop(job_id, None)
             self._jobs.pop(job_id, None)
 
     def _load_jobs_from_disk(self) -> None:
         for metadata_path in sorted(self.settings.jobs_dir.glob("*/metadata.json")):
             with metadata_path.open("r", encoding="utf-8") as f:
                 record = json.load(f)
+            self._normalize_record(record)
+            record["preview"] = self._preview_state(record["job_id"])
             if record["status"] == "queued":
                 self._jobs[record["job_id"]] = record
                 self._queue.put(record["job_id"])
@@ -251,6 +272,7 @@ class JobManager:
                 record["status"] = "running"
                 record["started_at"] = _utcnow()
                 record["last_updated_at"] = _utcnow()
+                record["preview"] = self._preview_state(record["job_id"])
                 record["progress"] = {
                     "phase": "starting",
                     "label": "Starting inference process",
@@ -309,6 +331,7 @@ class JobManager:
                 if return_code == 0 and scene_path.exists():
                     record["status"] = "succeeded"
                     record["error"] = None
+                    record["preview"] = self._preview_state(record["job_id"], status="pending")
                     record["progress"] = {
                         "phase": "completed",
                         "label": "Job completed",
@@ -321,6 +344,7 @@ class JobManager:
                 else:
                     record["status"] = "failed"
                     record["error"] = f"demo.py exited with code {return_code}"
+                    record["preview"] = self._preview_state(record["job_id"], status="unavailable")
                     record["progress"] = {
                         "phase": "failed",
                         "label": record["error"],
@@ -331,6 +355,10 @@ class JobManager:
                         "queue_position": None,
                     }
                 self._persist_locked(record)
+                should_start_preview = record["status"] == "succeeded"
+
+            if should_start_preview:
+                self._ensure_preview_server(job_id)
 
     def _build_command(self, record: dict) -> list[str]:
         request = record["request"]
@@ -349,6 +377,12 @@ class JobManager:
             str(request["num_scale_frames"]),
             "--export_glb",
             record["paths"]["scene_glb"],
+            "--export_preview_bundle",
+            record["paths"]["preview_bundle"],
+            "--preview_max_frames",
+            str(self.settings.preview_max_frames),
+            "--preview_spatial_stride",
+            str(self.settings.preview_spatial_stride),
             "--progress_path",
             record["paths"]["progress_json"],
             "--skip_viewer",
@@ -404,6 +438,131 @@ class JobManager:
         if job_id not in queued_ids:
             return None
         return queued_ids.index(job_id) + 1
+
+    def _normalize_record(self, record: dict) -> None:
+        job_dir = Path(record["paths"]["job_dir"])
+        artifacts_dir = Path(record["paths"].get("artifacts_dir", job_dir / "artifacts"))
+        logs_dir = job_dir / "logs"
+        frames_dir = job_dir / "frames"
+        record["paths"]["artifacts_dir"] = str(artifacts_dir)
+        record["paths"].setdefault("scene_glb", str(artifacts_dir / "scene.glb"))
+        record["paths"].setdefault("log_txt", str(artifacts_dir / "log.txt"))
+        record["paths"].setdefault("metadata_json", str(job_dir / "metadata.json"))
+        record["paths"].setdefault("progress_json", str(job_dir / "progress.json"))
+        record["paths"].setdefault("preview_bundle", str(artifacts_dir / "preview_bundle.npz"))
+        record["paths"].setdefault("sky_mask_dir", str(job_dir / "sky_masks"))
+        record["paths"].setdefault("sky_mask_visualization_dir", str(job_dir / "sky_mask_visualizations"))
+        record["paths"].setdefault("frames_dir", str(frames_dir))
+        record.setdefault("preview", self._preview_state(record["job_id"]))
+
+    def _preview_state(
+        self,
+        job_id: str,
+        *,
+        status: str = "pending",
+        port: int | None = None,
+        error: str | None = None,
+    ) -> dict:
+        return {
+            "status": status,
+            "port": port,
+            "url": f"/ui/jobs/{job_id}/preview",
+            "error": error,
+        }
+
+    def _restore_preview_servers(self) -> None:
+        with self._lock:
+            job_ids = [
+                record["job_id"]
+                for record in self._jobs.values()
+                if record["status"] == "succeeded"
+            ]
+        for job_id in job_ids:
+            self._ensure_preview_server(job_id)
+
+    def _ensure_preview_server(self, job_id: str) -> None:
+        if start_preview_server is None or PreviewServerHandle is None:
+            with self._lock:
+                record = self._jobs.get(job_id)
+                if record is not None:
+                    record["preview"] = self._preview_state(
+                        job_id,
+                        status="unavailable",
+                        error="viser is not installed in the server environment.",
+                    )
+                    self._persist_locked(record)
+            return
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None or record["status"] != "succeeded":
+                return
+            if job_id in self._preview_servers:
+                return
+
+            bundle_path = Path(record["paths"]["preview_bundle"])
+            if not bundle_path.exists():
+                record["preview"] = self._preview_state(
+                    job_id,
+                    status="unavailable",
+                    error="Preview bundle was not generated.",
+                )
+                self._persist_locked(record)
+                return
+
+            port = self._find_available_preview_port_locked()
+            record["preview"] = self._preview_state(job_id, status="starting", port=port)
+            self._persist_locked(record)
+
+        try:
+            preview = start_preview_server(bundle_path, port)
+        except Exception as e:
+            with self._lock:
+                current = self._jobs.get(job_id)
+                if current is not None:
+                    current["preview"] = self._preview_state(
+                        job_id,
+                        status="unavailable",
+                        error=f"Failed to start preview server: {e}",
+                    )
+                    self._persist_locked(current)
+            return
+
+        with self._lock:
+            current = self._jobs.get(job_id)
+            if current is None or current["status"] == "deleting":
+                self._preview_servers.pop(job_id, None)
+                should_stop = True
+            else:
+                self._preview_servers[job_id] = preview
+                current["preview"] = self._preview_state(job_id, status="ready", port=preview.port)
+                self._persist_locked(current)
+                should_stop = False
+        if should_stop:
+            preview.stop()
+
+    def _stop_preview_server(self, job_id: str, preview: PreviewServerHandle) -> None:
+        try:
+            preview.stop()
+        finally:
+            with self._lock:
+                self._preview_servers.pop(job_id, None)
+
+    def _find_available_preview_port_locked(self) -> int:
+        used_ports = {preview.port for preview in self._preview_servers.values()}
+        port = self.settings.preview_port_base
+        while port in used_ports or not self._is_port_available(port):
+            port += 1
+        return port
+
+    def _is_port_available(self, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("0.0.0.0", port))
+            except OSError:
+                return False
+        return True
 
     def _load_progress_locked(self, record: dict) -> None:
         progress_path = Path(record["paths"].get("progress_json", ""))

@@ -17,7 +17,11 @@ import viser
 import viser.transforms as tf
 from tqdm.auto import tqdm
 
-from lingbot_map.utils.geometry import closed_form_inverse_se3, unproject_depth_map_to_point_map
+from lingbot_map.utils.geometry import (
+    closed_form_inverse_se3,
+    transform_point_map_to_world,
+    unproject_depth_map_to_point_map,
+)
 from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
 
 
@@ -72,11 +76,17 @@ def viser_wrapper(
     intrinsics_cam = pred_dict["intrinsic"]  # (S, 3, 3)
 
     # Compute world points from depth if not using the precomputed point map
+    point_frame = pred_dict.get("point_frame", "camera")
+    if isinstance(point_frame, np.ndarray):
+        point_frame = point_frame.item()
+
     if not use_point_map:
         world_points = unproject_depth_map_to_point_map(depth_map, extrinsics_cam, intrinsics_cam)
         conf = depth_conf
     else:
         world_points = world_points_map
+        if point_frame != "world":
+            world_points = transform_point_map_to_world(world_points, extrinsics_cam)
         conf = conf_map
 
     # Apply sky segmentation if enabled
