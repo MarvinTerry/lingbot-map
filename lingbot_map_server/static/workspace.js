@@ -3,7 +3,7 @@ import { OrbitControls } from "/ui-static/vendor/three/examples/jsm/controls/Orb
 import { GLTFLoader } from "/ui-static/vendor/three/examples/jsm/loaders/GLTFLoader.js";
 
 const storageKey = "lingbot_map_server_api_key";
-const apiKey = window.localStorage.getItem(storageKey) || "";
+let apiKey = window.localStorage.getItem(storageKey) || "";
 const initialJobId = window.LINGBOT_WORKSPACE.selectedJobId || null;
 
 const jobsList = document.getElementById("jobs-list");
@@ -31,6 +31,12 @@ const viewerStage = document.getElementById("viewer-stage");
 const viewerEmpty = document.getElementById("viewer-empty");
 const viewerStatus = document.getElementById("viewer-status");
 const viewerStats = document.getElementById("viewer-stats");
+const authModal = document.getElementById("auth-modal");
+const authModalForm = document.getElementById("auth-modal-form");
+const authModalInput = document.getElementById("auth-modal-input");
+const authModalSubmit = document.getElementById("auth-modal-submit");
+const authModalMessage = document.getElementById("auth-modal-message");
+const authModalCopy = document.getElementById("auth-modal-copy");
 
 let currentFilter = "all";
 let selectedJobId = initialJobId;
@@ -50,6 +56,7 @@ let viewerAvailable = false;
 let renderScheduled = false;
 let previewFrame = null;
 let currentPreviewUrl = null;
+let authRequired = false;
 
 if (viewerStage) {
   previewFrame = document.createElement("iframe");
@@ -119,6 +126,46 @@ function initializeViewer() {
 
 function authHeaders() {
   return apiKey ? { "X-API-Key": apiKey } : {};
+}
+
+function showAuthModal(message) {
+  authRequired = true;
+  authModal.hidden = false;
+  authModalCopy.textContent = message || "访问 workspace 前需要先提供 API key。";
+  authModalInput.value = apiKey || "";
+  authModalMessage.hidden = true;
+  authModalMessage.textContent = "";
+  authModalSubmit.disabled = false;
+  authModalSubmit.textContent = "Login";
+  window.setTimeout(() => authModalInput.focus(), 0);
+}
+
+function hideAuthModal() {
+  authRequired = false;
+  authModal.hidden = true;
+  authModalMessage.hidden = true;
+  authModalMessage.textContent = "";
+}
+
+function showAuthError(message) {
+  authModalMessage.hidden = false;
+  authModalMessage.textContent = message;
+  authModalMessage.className = "message-box error";
+}
+
+function handleUnauthorized(message) {
+  apiKey = "";
+  window.localStorage.removeItem(storageKey);
+  if (listPollTimer) {
+    window.clearTimeout(listPollTimer);
+    listPollTimer = null;
+  }
+  if (jobPollTimer) {
+    window.clearTimeout(jobPollTimer);
+    jobPollTimer = null;
+  }
+  resetWorkspaceState();
+  showAuthModal(message || "API key 无效，请重新输入。");
 }
 
 function showMessage(text, tone) {
@@ -400,6 +447,10 @@ async function loadGlb(job) {
   viewerEmpty.textContent = "正在下载并加载 GLB。";
 
   const response = await fetch(artifact.url, { headers: authHeaders() });
+  if (response.status === 401) {
+    handleUnauthorized("GLB 预览请求被拒绝，请重新输入 API key。");
+    return;
+  }
   if (!response.ok) {
     viewerStatus.textContent = "GLB load failed";
     viewerEmpty.textContent = "GLB 下载失败，请稍后重试。";
@@ -451,6 +502,10 @@ function renderArtifacts(job) {
     button.textContent = "Download";
     button.addEventListener("click", async () => {
       const response = await fetch(artifact.url, { headers: authHeaders() });
+      if (response.status === 401) {
+        handleUnauthorized("下载产物前需要重新输入有效的 API key。");
+        return;
+      }
       if (!response.ok) {
         showMessage(`下载 ${artifact.filename} 失败。`, "error");
         return;
@@ -540,13 +595,17 @@ function renderSelectedJob(job) {
 
 async function fetchJobs() {
   if (!apiKey) {
-    jobsList.innerHTML = '<div class="jobs-empty">浏览器里没有 API key，请先去 Upload 页面输入。</div>';
-    showMessage("浏览器里还没有 API key。请先去 Upload 页面输入。", "error");
+    resetWorkspaceState();
+    showAuthModal("访问 workspace 前需要先提供 API key。");
     return;
   }
 
   try {
     const response = await fetch("/jobs", { headers: authHeaders() });
+    if (response.status === 401) {
+      handleUnauthorized("API key 无效，请重新输入。");
+      return;
+    }
     if (!response.ok) {
       const payload = await response.json();
       throw new Error(payload.detail || "Failed to fetch jobs");
@@ -573,7 +632,11 @@ async function fetchJobs() {
     if (listPollTimer) {
       window.clearTimeout(listPollTimer);
     }
-    listPollTimer = window.setTimeout(fetchJobs, 2500);
+    if (!authRequired && apiKey) {
+      listPollTimer = window.setTimeout(fetchJobs, 2500);
+    } else {
+      listPollTimer = null;
+    }
   }
 }
 
@@ -583,6 +646,10 @@ async function fetchSelectedJob() {
   }
   try {
     const response = await fetch(`/jobs/${selectedJobId}`, { headers: authHeaders() });
+    if (response.status === 401) {
+      handleUnauthorized("API key 无效，请重新输入。");
+      return;
+    }
     if (!response.ok) {
       const payload = await response.json();
       throw new Error(payload.detail || "Failed to fetch job");
@@ -595,8 +662,10 @@ async function fetchSelectedJob() {
     if (jobPollTimer) {
       window.clearTimeout(jobPollTimer);
     }
-    if (selectedJobId) {
+    if (!authRequired && apiKey && selectedJobId) {
       jobPollTimer = window.setTimeout(fetchSelectedJob, 2000);
+    } else {
+      jobPollTimer = null;
     }
   }
 }
@@ -637,6 +706,10 @@ deleteJobButton.addEventListener("click", async () => {
     method: "DELETE",
     headers: authHeaders(),
   });
+  if (response.status === 401) {
+    handleUnauthorized("删除 job 前需要重新输入有效的 API key。");
+    return;
+  }
   if (!response.ok) {
     showMessage("删除 job 失败。", "error");
     return;
@@ -648,6 +721,9 @@ deleteJobButton.addEventListener("click", async () => {
 });
 
 refreshButton.addEventListener("click", async () => {
+  if (authRequired) {
+    return;
+  }
   if (listPollTimer) {
     window.clearTimeout(listPollTimer);
     listPollTimer = null;
@@ -660,6 +736,9 @@ refreshButton.addEventListener("click", async () => {
 });
 
 filtersRoot.addEventListener("click", (event) => {
+  if (authRequired) {
+    return;
+  }
   const button = event.target.closest("[data-filter]");
   if (!button) {
     return;
@@ -673,6 +752,49 @@ filtersRoot.addEventListener("click", (event) => {
 
 window.addEventListener("resize", resizeRenderer);
 
+authModalForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const nextApiKey = authModalInput.value.trim();
+  if (!nextApiKey) {
+    showAuthError("请输入 API key。");
+    return;
+  }
+
+  authModalSubmit.disabled = true;
+  authModalSubmit.textContent = "Checking...";
+  authModalMessage.hidden = true;
+
+  try {
+    const response = await fetch("/jobs", {
+      headers: { "X-API-Key": nextApiKey },
+    });
+    if (response.status === 401) {
+      showAuthError("API key 无效。");
+      return;
+    }
+    if (!response.ok) {
+      const payload = await response.json();
+      throw new Error(payload.detail || "登录校验失败");
+    }
+
+    apiKey = nextApiKey;
+    window.localStorage.setItem(storageKey, apiKey);
+    hideAuthModal();
+    await fetchJobs();
+  } catch (error) {
+    showAuthError(String(error.message || error));
+  } finally {
+    authModalSubmit.disabled = false;
+    authModalSubmit.textContent = "Login";
+  }
+});
+
 initializeViewer();
 resizeRenderer();
-fetchJobs();
+if (apiKey) {
+  fetchJobs();
+} else {
+  resetWorkspaceState();
+  showAuthModal("访问 workspace 前需要先提供 API key。");
+}

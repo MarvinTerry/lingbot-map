@@ -146,6 +146,11 @@ Auth headers:
 - `X-API-Key: <key>`
 - `Authorization: Bearer <key>`
 
+联调文档与参考代码：
+
+- [`doc/lingbot-map-server-api.md`](../doc/lingbot-map-server-api.md)
+- [`scripts/lingbot_map_server_api_example.py`](../scripts/lingbot_map_server_api_example.py)
+
 ## Quick Example
 
 ```bash

@@ -44,9 +44,9 @@ def start_preview_server(bundle_path: Path, port: int) -> PreviewServerHandle:
         pred_dict=viewer_pred_dict,
         port=port,
         show_camera=True,
-        vis_threshold=0.0,
+        vis_threshold=1.1,
         downsample_factor=1,
-        point_size=0.0015,
+        point_size=0.005,
         use_point_map=use_point_map,
         depth_stride=1,
     )
