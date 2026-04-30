@@ -37,6 +37,10 @@ from lingbot_map.vis.sky_segmentation import (
     load_or_create_sky_masks,
     segment_sky,
 )
+from lingbot_map.vis.human_segmentation import (
+    apply_human_segmentation,
+    load_or_create_human_masks,
+)
 from lingbot_map.vis.glb_export import predictions_to_glb
 
 __all__ = [
@@ -56,4 +60,6 @@ __all__ = [
     "segment_sky",
     "download_skyseg_model",
     "load_or_create_sky_masks",
+    "apply_human_segmentation",
+    "load_or_create_human_masks",
 ]

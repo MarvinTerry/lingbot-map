@@ -545,6 +545,7 @@ function renderSelectedJob(job) {
     `mode=${job.request?.mode || "-"}`,
     `fps=${job.request?.fps || "-"}`,
     `mask_sky=${job.request?.mask_sky ? "true" : "false"}`,
+    `mask_humans=${job.request?.mask_humans ? "true" : "false"}`,
   ].join(" · ");
   detailRuntimeMeta.textContent = [
     `pid=${job.runtime?.pid || "-"}`,

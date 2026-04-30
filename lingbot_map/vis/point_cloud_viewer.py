@@ -588,13 +588,15 @@ class PointCloudViewer:
         if not hasattr(self, 'frame_nodes'):
             return
 
-        for handle in self.pc_handles:
+        current_handles = self.pc_handles
+        self.pc_handles = []
+        self.vis_pts_list.clear()
+
+        for handle in current_handles:
             try:
                 handle.remove()
             except (KeyError, AttributeError):
                 pass
-        self.pc_handles.clear()
-        self.vis_pts_list.clear()
 
         for i, step in enumerate(self.all_steps):
             pc = self.pcs[step]["pc"]
@@ -621,12 +623,14 @@ class PointCloudViewer:
         if not hasattr(self, 'frame_nodes'):
             return
 
-        for handle in self.cam_handles:
+        current_handles = self.cam_handles
+        self.cam_handles = []
+
+        for handle in current_handles:
             try:
                 handle.remove()
             except (KeyError, AttributeError):
                 pass
-        self.cam_handles.clear()
 
         if self.show_camera:
             downsample_factor = int(self.camera_downsample_slider.value)

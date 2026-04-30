@@ -137,6 +137,8 @@ async def create_job(
     keyframe_interval: int | None = Form(None),
     num_scale_frames: int = Form(8),
     mask_sky: bool = Form(False),
+    mask_humans: bool = Form(False),
+    human_mask_dilation_ratio: float = Form(0.05),
 ) -> dict:
     _validate_mode(mode)
     if not file.filename or not file.filename.lower().endswith(".mp4"):
@@ -145,6 +147,8 @@ async def create_job(
         raise HTTPException(status_code=422, detail="Invalid numeric request parameters")
     if keyframe_interval is not None and keyframe_interval <= 0:
         raise HTTPException(status_code=422, detail="keyframe_interval must be positive")
+    if human_mask_dilation_ratio < 0:
+        raise HTTPException(status_code=422, detail="human_mask_dilation_ratio must be non-negative")
 
     manager = _manager(request)
     job = manager.reserve_job(
@@ -158,6 +162,8 @@ async def create_job(
             "keyframe_interval": keyframe_interval,
             "num_scale_frames": num_scale_frames,
             "mask_sky": mask_sky,
+            "mask_humans": mask_humans,
+            "human_mask_dilation_ratio": human_mask_dilation_ratio,
         },
     )
 

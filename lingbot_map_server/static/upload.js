@@ -75,6 +75,7 @@
       formData.append("keyframe_interval", keyframeInterval);
     }
     formData.append("mask_sky", document.getElementById("mask-sky").checked ? "true" : "false");
+    formData.append("mask_humans", document.getElementById("mask-humans").checked ? "true" : "false");
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/jobs");

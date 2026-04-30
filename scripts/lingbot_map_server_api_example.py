@@ -76,6 +76,8 @@ def create_job(args: argparse.Namespace) -> dict:
         "overlap_size": str(args.overlap_size),
         "num_scale_frames": str(args.num_scale_frames),
         "mask_sky": "true" if args.mask_sky else "false",
+        "mask_humans": "true" if args.mask_humans else "false",
+        "human_mask_dilation_ratio": str(args.human_mask_dilation_ratio),
     }
     if args.keyframe_interval is not None:
         fields["keyframe_interval"] = str(args.keyframe_interval)
@@ -152,6 +154,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keyframe-interval", type=int, default=None)
     parser.add_argument("--num-scale-frames", type=int, default=8)
     parser.add_argument("--mask-sky", action="store_true")
+    parser.add_argument("--mask-humans", action="store_true")
+    parser.add_argument("--human-mask-dilation-ratio", type=float, default=0.05)
     parser.add_argument("--poll-interval", type=float, default=2.0)
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--download-dir", default="./tmp/lingbot-map-api-downloads")
