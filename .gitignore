@@ -11,6 +11,7 @@ CLAUDE.md
 .claude/
 .agents/
 skyseg.onnx
+yolo11n-seg.pt
 .env
 .env.*
 !.env.example
@@ -24,3 +25,5 @@ skyseg.onnx
 /*_frames/
 
 .venv/
+
+test_videos/

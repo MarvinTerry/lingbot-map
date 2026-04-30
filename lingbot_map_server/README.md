@@ -41,6 +41,7 @@ This UI does not replace the existing JSON API. It is just a thin layer on top o
 - working LingBot-Map checkpoint
 - GPU runtime already installed and verified
 - optional local proxy if you expect first-run downloads such as `skyseg.onnx`
+  or `yolo11n-seg.pt`
 
 ## Install
 
@@ -158,7 +159,8 @@ curl -X POST "http://127.0.0.1:8000/jobs" \
   -H "X-API-Key: change-me" \
   -F "file=@58aceb3121bdd696e377637a4e3b58b7.mp4" \
   -F "fps=2" \
-  -F "mode=streaming"
+  -F "mode=streaming" \
+  -F "mask_humans=true"
 ```
 
 ## UI Notes
@@ -167,6 +169,8 @@ curl -X POST "http://127.0.0.1:8000/jobs" \
 - Artifact downloads and GLB preview still go through the authenticated artifact endpoints.
 - The workspace uses a Three.js-based GLB viewer so the page can evolve toward richer camera/path-based 3D playback later.
 - Server process configuration is loaded from environment variables and optional `.env`.
+- If `mask_humans=true`, the worker will auto-download `yolo11n-seg.pt` on first use unless you already have it cached.
+- Human masking defaults to `human_mask_dilation_ratio=0.05`, which expands each detected person mask by `5%` of the instance bbox long edge.
 
 ## Artifacts
 

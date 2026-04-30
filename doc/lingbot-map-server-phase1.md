@@ -42,6 +42,7 @@ cp .env.example .env
 ```
 
 如果你会在请求里启用 `mask_sky=true`，并且本地还没有 `skyseg.onnx`，建议启动服务时也保留同样的代理环境变量，这样首次下载 sky segmentation 模型不会卡住。
+如果你会启用 `mask_humans=true`，同样建议保留代理环境变量，这样首次下载 `yolo11n-seg.pt` 不会卡住。
 
 ## API
 
@@ -68,6 +69,8 @@ cp .env.example .env
 - `keyframe_interval`: 可选
 - `num_scale_frames`: 默认 `8`
 - `mask_sky`: 默认 `false`
+- `mask_humans`: 默认 `false`
+- `human_mask_dilation_ratio`: 默认 `0.05`
 
 ## 产物
 
@@ -83,7 +86,9 @@ outputs/jobs/{job_id}/
 ├── artifacts/scene.glb
 ├── artifacts/log.txt
 ├── metadata.json
+├── human_masks/
 ├── sky_masks/
+├── human_mask_visualizations/
 └── sky_mask_visualizations/
 ```
 

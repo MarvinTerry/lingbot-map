@@ -44,13 +44,15 @@
 表单字段：
 
 - `file`: 必填，必须是 `.mp4`
-- `fps`: 可选，默认 `10`
+- `fps`: 可选，默认 `20`
 - `mode`: 可选，`streaming` 或 `windowed`
 - `window_size`: 可选，默认 `64`
 - `overlap_size`: 可选，默认 `16`
 - `keyframe_interval`: 可选，正整数
 - `num_scale_frames`: 可选，默认 `8`
 - `mask_sky`: 可选，默认 `false`
+- `mask_humans`: 可选，默认 `false`
+- `human_mask_dilation_ratio`: 可选，默认 `0.05`
 
 最小 `curl` 示例：
 
@@ -58,9 +60,11 @@
 curl -X POST "http://lingbotmap.entropix.online:8000/jobs" \
   -H "X-API-Key: change-me" \
   -F "file=@ad59d7bf169eff909f269107aa9aa379.mp4" \
-  -F "fps=10" \
+  -F "fps=20" \
   -F "mode=streaming" \
-  -F "num_scale_frames=8"
+  -F "num_scale_frames=4" \
+  -F "mask_humans=true" \
+  -F "human_mask_dilation_ratio=0.05"
 ```
 
 返回值示例：
@@ -161,6 +165,7 @@ curl -X DELETE "http://127.0.0.1:8000/jobs/a8b20d171f4c4940b95e7704d4a0a6eb" \
 - 上传成功后优先轮询 `GET /jobs/{job_id}`，不要靠前端页面人工看状态。
 - 如果 job 失败，优先下载 `log.txt` 排查。
 - 如果启用了 `mask_sky=true`，首次运行可能触发 `skyseg.onnx` 下载。
+- 如果启用了 `mask_humans=true`，首次运行可能触发 `yolo11n-seg.pt` 下载。
 
 ## 参考代码
 
@@ -177,6 +182,8 @@ curl -X DELETE "http://127.0.0.1:8000/jobs/a8b20d171f4c4940b95e7704d4a0a6eb" \
   --video 58aceb3121bdd696e377637a4e3b58b7.mp4 \
   --fps 10 \
   --mode streaming \
+  --mask-humans \
+  --human-mask-dilation-ratio 0.05 \
   --download-dir /tmp/lingbot-map-artifacts
 ```
 
@@ -186,4 +193,3 @@ curl -X DELETE "http://127.0.0.1:8000/jobs/a8b20d171f4c4940b95e7704d4a0a6eb" \
 2. 轮询直到 `succeeded` 或 `failed`
 3. 列出产物
 4. 下载全部产物到本地目录
-

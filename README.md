@@ -174,6 +174,30 @@ python demo.py --model_path /path/to/checkpoint.pt \
     --sky_mask_visualization_dir /path/to/mask_viz/
 ```
 
+### Human Masking
+
+Human masking uses an Ultralytics segmentation model to remove `person` regions from the confidence maps before preview and GLB export. This is useful for drone follow-shot scenes where moving people would otherwise leave floating artifacts.
+
+The model defaults to `yolo11n-seg.pt` and will be downloaded automatically on first use.
+By default each detected person mask is also dilated by `5%` of the instance bbox long edge to more aggressively suppress edge residuals.
+
+```bash
+python demo.py --model_path /path/to/checkpoint.pt \
+    --video_path video.mp4 --mask_humans
+```
+
+You can also keep cached masks and export per-frame visualization panels:
+
+```bash
+python demo.py --model_path /path/to/checkpoint.pt \
+    --image_folder /path/to/images/ --mask_humans \
+    --human_mask_dilation_ratio 0.05 \
+    --human_mask_dir /path/to/human_masks/ \
+    --human_mask_visualization_dir /path/to/human_mask_viz/
+```
+
+`--mask_sky` and `--mask_humans` can be enabled together.
+
 ### Visualization Options
 
 | Argument | Default | Description |

@@ -319,6 +319,71 @@ def prepare_for_visualization(predictions, images=None):
     return vis_predictions
 
 
+def apply_visibility_masks(vis_predictions, args, resolved_image_folder=None, image_paths=None):
+    images = vis_predictions.get("images")
+    conf_keys = [key for key in ("world_points_conf", "depth_conf") if vis_predictions.get(key) is not None]
+
+    def _apply_precomputed_mask(mask_array, threshold, fill_value):
+        if mask_array is None:
+            return
+        for key in conf_keys:
+            conf = vis_predictions.get(key)
+            if conf is None:
+                continue
+            S, H, W = conf.shape
+            current_mask = mask_array
+            if current_mask.shape[0] < S:
+                padded = np.full((S, H, W), fill_value, dtype=current_mask.dtype)
+                padded[: current_mask.shape[0]] = current_mask
+                current_mask = padded
+            elif current_mask.shape[0] > S:
+                current_mask = current_mask[:S]
+            if current_mask.shape[1:] != (H, W):
+                raise ValueError(f"Mask shape {current_mask.shape[1:]} does not match confidence shape {(H, W)}")
+            vis_predictions[key] = conf * (current_mask > threshold).astype(np.float32)
+
+    if args.mask_sky:
+        from lingbot_map.vis.sky_segmentation import _SKYSEG_SOFT_THRESHOLD, load_or_create_sky_masks
+
+        reference_conf = vis_predictions.get(conf_keys[0]) if conf_keys else None
+        if reference_conf is not None:
+            S, H, W = reference_conf.shape
+            sky_masks = load_or_create_sky_masks(
+                image_folder=resolved_image_folder,
+                image_paths=image_paths,
+                images=images,
+                sky_mask_dir=args.sky_mask_dir,
+                sky_mask_visualization_dir=args.sky_mask_visualization_dir,
+                target_shape=(H, W),
+                num_frames=S,
+            )
+            _apply_precomputed_mask(sky_masks, _SKYSEG_SOFT_THRESHOLD, 1.0)
+
+    if args.mask_humans:
+        from lingbot_map.vis.human_segmentation import (
+            _HUMANSEG_BINARY_THRESHOLD,
+            load_or_create_human_masks,
+        )
+
+        reference_conf = vis_predictions.get(conf_keys[0]) if conf_keys else None
+        if reference_conf is not None:
+            S, H, W = reference_conf.shape
+            human_masks = load_or_create_human_masks(
+                image_folder=resolved_image_folder,
+                image_paths=image_paths,
+                images=images,
+                humanseg_model_path=args.humanseg_model_path,
+                human_mask_dilation_ratio=args.human_mask_dilation_ratio,
+                human_mask_dir=args.human_mask_dir,
+                human_mask_visualization_dir=args.human_mask_visualization_dir,
+                target_shape=(H, W),
+                num_frames=S,
+            )
+            _apply_precomputed_mask(human_masks, _HUMANSEG_BINARY_THRESHOLD, 1.0)
+
+    return vis_predictions
+
+
 def export_preview_bundle(
     predictions,
     images,
@@ -430,6 +495,15 @@ def main():
                         help="Directory for cached sky masks (default: <image_folder>_sky_masks/)")
     parser.add_argument("--sky_mask_visualization_dir", type=str, default=None,
                         help="Save sky mask visualizations (original | mask | overlay) to this directory")
+    parser.add_argument("--mask_humans", action="store_true", help="Apply human segmentation to filter out person regions")
+    parser.add_argument("--humanseg_model_path", type=str, default="yolo11n-seg.pt",
+                        help="Ultralytics segmentation model path or model name used for person masking")
+    parser.add_argument("--human_mask_dilation_ratio", type=float, default=0.05,
+                        help="Dilate each detected person mask by this ratio of the instance bbox long edge")
+    parser.add_argument("--human_mask_dir", type=str, default=None,
+                        help="Directory for cached human masks (default: <image_folder>_human_masks/)")
+    parser.add_argument("--human_mask_visualization_dir", type=str, default=None,
+                        help="Save human mask visualizations (original | mask | overlay) to this directory")
     parser.add_argument("--export_preprocessed", type=str, default=None,
                         help="Export stride-sampled, resized/cropped images to this folder")
     parser.add_argument("--export_glb", type=str, default=None,
@@ -595,19 +669,12 @@ def main():
     vis_predictions = None
     if args.export_preview_bundle or args.export_glb or not args.skip_viewer:
         vis_predictions = prepare_for_visualization(predictions, images_cpu)
-        if args.mask_sky:
-            from lingbot_map.vis.sky_segmentation import apply_sky_segmentation
-
-            conf = vis_predictions.get("world_points_conf")
-            if conf is not None:
-                vis_predictions["world_points_conf"] = apply_sky_segmentation(
-                    conf,
-                    image_folder=resolved_image_folder,
-                    image_paths=paths,
-                    images=vis_predictions.get("images"),
-                    sky_mask_dir=args.sky_mask_dir,
-                    sky_mask_visualization_dir=args.sky_mask_visualization_dir,
-                )
+        vis_predictions = apply_visibility_masks(
+            vis_predictions,
+            args,
+            resolved_image_folder=resolved_image_folder,
+            image_paths=paths,
+        )
 
     if args.export_preview_bundle:
         progress_reporter.update("export_preview", "Exporting preview bundle", 96.0, current=0, total=1)
@@ -663,7 +730,7 @@ def main():
             vis_threshold=args.conf_threshold,
             downsample_factor=args.downsample_factor,
             point_size=args.point_size,
-            mask_sky=args.mask_sky,
+            mask_sky=False,
             image_folder=resolved_image_folder,
             sky_mask_dir=args.sky_mask_dir,
             sky_mask_visualization_dir=args.sky_mask_visualization_dir,

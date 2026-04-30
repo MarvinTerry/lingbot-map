@@ -131,6 +131,8 @@ class JobManager:
                 "preview_bundle": str(artifacts_dir / "preview_bundle.npz"),
                 "sky_mask_dir": str(job_dir / "sky_masks"),
                 "sky_mask_visualization_dir": str(job_dir / "sky_mask_visualizations"),
+                "human_mask_dir": str(job_dir / "human_masks"),
+                "human_mask_visualization_dir": str(job_dir / "human_mask_visualizations"),
                 "frames_dir": str(frames_dir),
             },
             "preview": self._preview_state(job_id),
@@ -388,6 +390,8 @@ class JobManager:
             "--skip_viewer",
             "--sky_mask_dir",
             record["paths"]["sky_mask_dir"],
+            "--human_mask_dir",
+            record["paths"]["human_mask_dir"],
         ]
         if request["mode"] == "windowed":
             command.extend(["--window_size", str(request["window_size"])])
@@ -400,6 +404,16 @@ class JobManager:
                 [
                     "--sky_mask_visualization_dir",
                     record["paths"]["sky_mask_visualization_dir"],
+                ]
+            )
+        if request.get("mask_humans"):
+            command.append("--mask_humans")
+            command.extend(
+                [
+                    "--human_mask_dilation_ratio",
+                    str(request.get("human_mask_dilation_ratio", 0.05)),
+                    "--human_mask_visualization_dir",
+                    record["paths"]["human_mask_visualization_dir"],
                 ]
             )
         if self.settings.use_sdpa:
@@ -452,6 +466,8 @@ class JobManager:
         record["paths"].setdefault("preview_bundle", str(artifacts_dir / "preview_bundle.npz"))
         record["paths"].setdefault("sky_mask_dir", str(job_dir / "sky_masks"))
         record["paths"].setdefault("sky_mask_visualization_dir", str(job_dir / "sky_mask_visualizations"))
+        record["paths"].setdefault("human_mask_dir", str(job_dir / "human_masks"))
+        record["paths"].setdefault("human_mask_visualization_dir", str(job_dir / "human_mask_visualizations"))
         record["paths"].setdefault("frames_dir", str(frames_dir))
         record.setdefault("preview", self._preview_state(record["job_id"]))
 
